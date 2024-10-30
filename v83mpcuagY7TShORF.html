@@ -1,0 +1,456 @@
+<html><head><base href="." />
+<style>
+body {
+    background: #111;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-family: Arial, sans-serif;
+    color: white;
+}
+
+.game-wrapper {
+    display: flex;
+    align-items: flex-start;
+    gap: 20px;
+}
+
+#game-container {
+    position: relative;
+    width: 300px;
+    height: 600px;
+    border: 2px solid #333;
+    margin: 20px;
+}
+
+#game-board {
+    width: 100%;
+    height: 100%;
+    background: #000;
+}
+
+.cell {
+    width: 30px;
+    height: 30px;
+    border: 1px solid #222;
+    position: absolute;
+}
+
+#score-container {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+#next-piece {
+    width: 150px;
+    height: 150px;
+    background: #222;
+    border-radius: 5px;
+    position: relative;
+}
+
+#score {
+    font-size: 24px;
+    padding: 20px;
+    background: #222;
+    border-radius: 5px;
+    min-width: 150px;
+    text-align: center;
+}
+
+#level {
+    font-size: 24px;
+    padding: 20px;
+    background: #222;
+    border-radius: 5px;
+    min-width: 150px;
+    text-align: center;
+}
+
+#controls {
+    margin: 20px;
+    padding: 10px;
+    background: #222;
+    border-radius: 5px;
+}
+
+.game-over {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 40px;
+    color: red;
+    display: none;
+}
+
+#start-button {
+    font-size: 24px;
+    padding: 20px;
+    background: #222;
+    border-radius: 5px;
+    min-width: 150px;
+    text-align: center;
+    cursor: pointer;
+    border: none;
+    color: white;
+    transition: background-color 0.3s;
+}
+
+#start-button:hover {
+    background: #444;
+}
+
+#start-button:disabled {
+    background: #111;
+    cursor: not-allowed;
+}
+
+#save-swap-button {
+    font-size: 24px;
+    padding: 20px;
+    background: #222;
+    border-radius: 5px;
+    min-width: 150px;
+    text-align: center;
+    cursor: pointer;
+    border: none;
+    color: white;
+    transition: background-color 0.3s;
+    margin-top: 20px;
+}
+
+#save-swap-button:hover {
+    background: #444;
+}
+
+#save-swap-button:disabled {
+    background: #111;
+    cursor: not-allowed;
+}
+</style>
+</head>
+<body>
+    <h1>Tetris</h1>
+    <div class="game-wrapper">
+        <div id="game-container">
+            <div id="game-board"></div>
+            <div class="game-over">GAME OVER</div>
+        </div>
+        <div id="score-container">
+            <div id="next-piece"></div>
+            <div id="score">Score: 0</div>
+            <div id="level">Level: 1</div>
+            <button id="start-button">Start Game</button>
+            <button id="save-swap-button">Save/Swap Piece</button>
+        </div>
+    </div>
+    <div id="controls">
+        Controls:<br>
+        ← → : Move left/right<br>
+        ↑ : Rotate<br>
+        ↓ : Move down<br>
+        Space : Drop<br>
+        C : Save/Swap Piece
+    </div>
+
+<script>
+const BOARD_WIDTH = 10;
+const BOARD_HEIGHT = 20;
+const CELL_SIZE = 30;
+
+const SHAPES = [
+    [[1, 1, 1, 1]], // I
+    [[1, 1], [1, 1]], // O
+    [[1, 1, 1], [0, 1, 0]], // T
+    [[1, 1, 1], [1, 0, 0]], // L
+    [[1, 1, 1], [0, 0, 1]], // J
+    [[1, 1, 0], [0, 1, 1]], // S
+    [[0, 1, 1], [1, 1, 0]]  // Z
+];
+
+const COLORS = ['#00f0f0', '#f0f000', '#a000f0', '#f0a000', '#0000f0', '#00f000', '#f00000'];
+
+class Tetris {
+    constructor() {
+        this.board = Array(BOARD_HEIGHT).fill().map(() => Array(BOARD_WIDTH).fill(0));
+        this.score = 0;
+        this.level = 1;
+        this.linesCleared = 0;
+        this.gameOver = false;
+        this.currentPiece = null;
+        this.currentPos = { x: 0, y: 0 };
+        this.currentColor = 0;
+        this.nextPieceIndex = Math.floor(Math.random() * SHAPES.length);
+        this.savedPiece = null;
+        this.savedColor = null;
+        this.canSwap = true;
+        this.gameStarted = false;
+        this.gameInterval = null;
+        
+        this.setupGame();
+    }
+
+    startGame() {
+        if (!this.gameStarted) {
+            this.gameStarted = true;
+            this.createNewPiece();
+            document.getElementById('start-button').disabled = true;
+            
+            this.gameInterval = setInterval(() => {
+                if (!this.gameOver) {
+                    this.moveDown();
+                    this.draw();
+                }
+            }, 1000 / Math.sqrt(this.level));
+        }
+    }
+
+    createNewPiece() {
+        this.currentPiece = SHAPES[this.nextPieceIndex].map(row => [...row]);
+        this.currentColor = COLORS[this.nextPieceIndex];
+        this.currentPos = {
+            x: Math.floor((BOARD_WIDTH - this.currentPiece[0].length) / 2),
+            y: 0
+        };
+
+        this.nextPieceIndex = Math.floor(Math.random() * SHAPES.length);
+        this.drawNextPiece();
+        this.canSwap = true;
+
+        if (this.checkCollision()) {
+            this.gameOver = true;
+        }
+    }
+
+    drawNextPiece() {
+        const nextPieceContainer = document.getElementById('next-piece');
+        nextPieceContainer.innerHTML = '';
+        const nextPiece = SHAPES[this.nextPieceIndex];
+        const nextColor = COLORS[this.nextPieceIndex];
+
+        for (let y = 0; y < nextPiece.length; y++) {
+            for (let x = 0; x < nextPiece[y].length; x++) {
+                if (nextPiece[y][x]) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.style.left = (x * CELL_SIZE + 45) + 'px';
+                    cell.style.top = (y * CELL_SIZE + 45) + 'px';
+                    cell.style.backgroundColor = nextColor;
+                    nextPieceContainer.appendChild(cell);
+                }
+            }
+        }
+    }
+
+    checkCollision() {
+        for (let y = 0; y < this.currentPiece.length; y++) {
+            for (let x = 0; x < this.currentPiece[y].length; x++) {
+                if (this.currentPiece[y][x]) {
+                    const boardX = this.currentPos.x + x;
+                    const boardY = this.currentPos.y + y;
+
+                    if (boardX < 0 || boardX >= BOARD_WIDTH || 
+                        boardY >= BOARD_HEIGHT ||
+                        (boardY >= 0 && this.board[boardY][boardX])) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    rotate() {
+        const newPiece = this.currentPiece[0].map((_, i) =>
+            this.currentPiece.map(row => row[row.length - 1 - i])
+        );
+        
+        const originalPiece = this.currentPiece;
+        this.currentPiece = newPiece;
+        
+        if (this.checkCollision()) {
+            this.currentPiece = originalPiece;
+        }
+    }
+
+    moveDown() {
+        this.currentPos.y++;
+        if (this.checkCollision()) {
+            this.currentPos.y--;
+            this.mergePiece();
+            this.clearLines();
+            this.createNewPiece();
+        }
+    }
+
+    moveLeft() {
+        this.currentPos.x--;
+        if (this.checkCollision()) {
+            this.currentPos.x++;
+        }
+    }
+
+    moveRight() {
+        this.currentPos.x++;
+        if (this.checkCollision()) {
+            this.currentPos.x--;
+        }
+    }
+
+    mergePiece() {
+        for (let y = 0; y < this.currentPiece.length; y++) {
+            for (let x = 0; x < this.currentPiece[y].length; x++) {
+                if (this.currentPiece[y][x]) {
+                    const boardY = this.currentPos.y + y;
+                    if (boardY >= 0) {
+                        this.board[boardY][this.currentPos.x + x] = this.currentColor;
+                    }
+                }
+            }
+        }
+    }
+
+    clearLines() {
+        let linesCleared = 0;
+        for (let y = BOARD_HEIGHT - 1; y >= 0; y--) {
+            if (this.board[y].every(cell => cell !== 0)) {
+                this.board.splice(y, 1);
+                this.board.unshift(Array(BOARD_WIDTH).fill(0));
+                this.score += 100;
+                linesCleared++;
+                this.linesCleared++;
+            }
+        }
+        
+        if (this.linesCleared >= this.level * 10) {
+            this.level++;
+            document.getElementById('level').textContent = `Level: ${this.level}`;
+        }
+        
+        document.getElementById('score').textContent = `Score: ${this.score}`;
+    }
+
+    drop() {
+        while (!this.checkCollision()) {
+            this.currentPos.y++;
+        }
+        this.currentPos.y--;
+        this.mergePiece();
+        this.clearLines();
+        this.createNewPiece();
+    }
+
+    draw() {
+        const board = document.getElementById('game-board');
+        board.innerHTML = '';
+
+        // Draw the fixed pieces
+        for (let y = 0; y < BOARD_HEIGHT; y++) {
+            for (let x = 0; x < BOARD_WIDTH; x++) {
+                if (this.board[y][x]) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.style.left = x * CELL_SIZE + 'px';
+                    cell.style.top = y * CELL_SIZE + 'px';
+                    cell.style.backgroundColor = this.board[y][x];
+                    board.appendChild(cell);
+                }
+            }
+        }
+
+        // Draw the current piece
+        if (this.currentPiece) {
+            for (let y = 0; y < this.currentPiece.length; y++) {
+                for (let x = 0; x < this.currentPiece[y].length; x++) {
+                    if (this.currentPiece[y][x]) {
+                        const cell = document.createElement('div');
+                        cell.className = 'cell';
+                        cell.style.left = (this.currentPos.x + x) * CELL_SIZE + 'px';
+                        cell.style.top = (this.currentPos.y + y) * CELL_SIZE + 'px';
+                        cell.style.backgroundColor = this.currentColor;
+                        board.appendChild(cell);
+                    }
+                }
+            }
+        }
+
+        if (this.gameOver) {
+            document.querySelector('.game-over').style.display = 'block';
+        }
+    }
+
+    saveSwapPiece() {
+        if (!this.canSwap) return;
+        
+        const tempPiece = this.currentPiece;
+        const tempColor = this.currentColor;
+        
+        if (this.savedPiece === null) {
+            this.currentPiece = SHAPES[this.nextPieceIndex].map(row => [...row]);
+            this.currentColor = COLORS[this.nextPieceIndex];
+            this.nextPieceIndex = Math.floor(Math.random() * SHAPES.length);
+        } else {
+            this.currentPiece = this.savedPiece;
+            this.currentColor = this.savedColor;
+        }
+        
+        this.savedPiece = tempPiece;
+        this.savedColor = tempColor;
+        this.currentPos = {
+            x: Math.floor((BOARD_WIDTH - this.currentPiece[0].length) / 2),
+            y: 0
+        };
+        
+        this.canSwap = false;
+        this.drawNextPiece();
+        this.draw();
+    }
+
+    setupGame() {
+        document.getElementById('start-button').addEventListener('click', () => {
+            this.startGame();
+        });
+
+        document.getElementById('save-swap-button').addEventListener('click', () => {
+            if (this.gameStarted && !this.gameOver) {
+                this.saveSwapPiece();
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (!this.gameOver && this.gameStarted) {
+                switch (e.key) {
+                    case 'ArrowLeft':
+                        this.moveLeft();
+                        break;
+                    case 'ArrowRight':
+                        this.moveRight();
+                        break;
+                    case 'ArrowDown':
+                        this.moveDown();
+                        break;
+                    case 'ArrowUp':
+                        this.rotate();
+                        break;
+                    case ' ':
+                        this.drop();
+                        break;
+                    case 'c':
+                    case 'C':
+                        this.saveSwapPiece();
+                        break;
+                }
+                this.draw();
+            }
+        });
+
+        this.draw();
+    }
+}
+
+// Start the game
+const game = new Tetris();
+</script>
+</body></html>
